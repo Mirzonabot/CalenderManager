@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Recorder with Visualizer</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                flex-direction: row;
+                height: 100vh;
+                margin: 0;
+                background-color: #f0f0f0;
+            }
+            .left-container, .right-container {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+            }
+            .left-container {
+                width: 70%;
+                background-color: #fff;
+            }
+            .right-container {
+                width: 30%;
+                background-color: #b18080;
+            }
+            form {
+    display: flex;
+    flex-direction: column;
+    margin-top: 2rem;
+}
+
+label {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 1rem;
+}
+
+input[type="text"], input[type="password"] {
+    padding: 0.5rem;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    outline: none;
+}
+
+input[type="submit"] {
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    font-size: 1.2rem;
+    border: none;
+    border-radius: 5px;
+    background-color: #4CAF50;
+    color: white;
+    cursor: pointer;
+    outline: none;
+}
+
+input[type="submit"]:hover {
+    background-color: #45a049;
+}
+            /* ... */
+        </style>
+    </head>
+    <body>
+        <div class="left-container">
+            <button id="record-btn">Start Recording</button>
+            <canvas id="visualizer"></canvas>
+            <table id="tasks-table" border="1">
+                <thead>
+                    <tr>
+                        <th>Task</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+        <div class="right-container">
+            <form>
+                <fieldset>
+                    <legend>Login to JIRA</legend>
+                    <label>
+                        Server:
+                        <input type="text" name="server" required>
+                    </label>
+                    <label>
+                        Login:
+                        <input type="text" name="login" required>
+                    </label>
+                    <label>
+                        Password:
+                        <input type="password" name="password" required>
+                    </label>
+                    <input type="submit" value="Submit">
+                </fieldset>
+            </form>
+        </div>
+    <script>
+        const recordBtn = document.querySelector('#record-btn');
+        const visualizer = document.querySelector('#visualizer');
+        const canvasCtx = visualizer.getContext('2d');
+        const chunks = [];
+        let mediaRecorder;
+        // let speechRecognition;
+        let audioContext;
+        let analyzer;
+        let dataArray;
+
+
+        // Function to populate the table with JSON data
+                // Function to populate the table with JSON data
+                function populateTable(data) {
+            const tableBody = document.querySelector('#tasks-table tbody');
+            tableBody.innerHTML = '';
+
+            for (const taskObj of data.tasks) {
+                const row = document.createElement('tr');
+
+                const taskCell = document.createElement('td');
+                taskCell.textContent = taskObj.task;
+                row.appendChild(taskCell);
+
+                const timeCell = document.createElement('td');
+                timeCell.textContent = taskObj.time_of_day;
+                row.appendChild(timeCell);
+
+                tableBody.appendChild(row);
+            }
+        }
+
+        
+
+        const drawVisualizer = () => {
+            analyzer.getByteFrequencyData(dataArray);
+            canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            canvasCtx.fillRect(0, 0, visualizer.width, visualizer.height);
+            const barWidth = (visualizer.width / dataArray.length) * 2.5;
+            let barHeight;
+            let x = 0;
+
+            for (let i = 0; i < dataArray.length; i++) {
+                barHeight = dataArray[i];
+                canvasCtx.fillStyle = `rgba(${barHeight + 100}, 50, 50, 0.8)`;
+                canvasCtx.fillRect(x, visualizer.height - barHeight / 2, barWidth, barHeight / 2);
+                x += barWidth + 1;
+            }
+            requestAnimationFrame(drawVisualizer);
+        };
+
+        const startRecording = () => {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    audioContext = new AudioContext();
+                    analyzer = audioContext.createAnalyser();
+                    analyzer.fftSize = 256;
+                    dataArray = new Uint8Array(analyzer.frequencyBinCount);
+                    const source = audioContext.createMediaStreamSource(stream);
+                    source.connect(analyzer);
+
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.addEventListener('dataavailable', e => chunks.push(e.data));
+                    mediaRecorder.addEventListener('stop', () => {
+                        const audioBlob = new Blob(chunks);
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        fetch('/save-audio', {
+                            method: 'POST',
+                            body: audioBlob,
+                            headers: { 'Content-Type': 'audio/webm' }
+                        }).then(response => response.json())
+                        .then(jsonData => {console.log(jsonData);
+                            populateTable(jsonData.tasks)})
+                        .catch(error => console.error('Error fetching JSON data:', error));
+                    });
+
+                    mediaRecorder.start();
+                    drawVisualizer();
+                    recordBtn.innerText = 'Stop Recording';
+                    recordBtn.removeEventListener('click', startRecording);
+                    recordBtn.addEventListener('click', stopRecording);
+                })
+                .catch(err => console.log(err));
+        };
+
+        const stopRecording = () => {
+            mediaRecorder.stop();
+            audioContext.close();
+            recordBtn.innerText = 'Start Recording';
+            recordBtn.removeEventListener('click', stopRecording);
+            recordBtn.addEventListener('click', startRecording);
+            chunks.length = 0;
+        };
+
+        recordBtn.addEventListener('click', startRecording);
+    </script>
+</body>
+</html>
